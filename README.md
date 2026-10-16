@@ -15,10 +15,33 @@ See [validation notes](VALIDATION.md) for actual tests and example measurements.
 - Measure PSNR, SSIM, MSE, and processing time when a clean reference exists.
 - Export images, CSV, JSON configuration/metrics, and a text report in one ZIP.
 - Optionally request an experimental Gemini image-quality description after authorizing image transmission.
+- Explore a separately trained, two-label chest X-ray classifier with held-out benchmark results.
 
-This is **not a diagnostic system**. There is no disease classifier, clinical validation,
-medical fine-tuning, or claim of diagnostic accuracy. The demo is a geometric test image.
-SwinIR is pretrained upstream on general image data. Restoration can alter or invent details.
+This is **not a diagnostic system**. The classifier only predicts the benchmark labels
+normal/pneumonia, was trained on pediatric preprocessed images, and has no clinical validation.
+The demo is a geometric test image. SwinIR is pretrained upstream on general image data.
+Restoration can alter or invent details.
+
+## Experimental chest X-ray classifier
+
+The app includes a compact CNN trained on the official 224-pixel PneumoniaMNIST+ benchmark.
+It predicts only the dataset's normal or pneumonia label; it does not produce a radiology
+report or assess other findings. On the publisher-defined, held-out test split (624 images),
+the recorded run reached ROC AUC 0.950 and accuracy 0.803. At the fixed 0.5 threshold,
+sensitivity was 0.995 while specificity was only 0.483 (121/234 normal images were flagged
+as pneumonia). This threshold tradeoff is shown in the app and reported honestly.
+
+The source dataset is pediatric and preprocessed, and the model has not been externally
+validated across hospitals or adult populations. It is not for care or clinical use. See
+[training and evaluation details](TRAINING.md) and the metrics in
+`results/pneumonia_test_metrics.json`. To reproduce training, download
+`pneumoniamnist_224.npz` from the [official MedMNIST+ Zenodo record](https://zenodo.org/records/10519652)
+into `data/`, then run:
+
+~~~text
+python -m scripts.train_pneumonia --epochs 10 --seed 42
+python -m scripts.evaluate_pneumonia
+~~~
 
 ## Quick start (Python 3.12)
 
@@ -147,11 +170,11 @@ pinned architecture, tests, and documentation.
 
 ## Accurate portfolio description
 
-"Developed an image-restoration prototype integrating pretrained SwinIR denoising and
-super-resolution with classical baselines, reproducible degradation experiments, PSNR/SSIM
-evaluation, and a Streamlit interface with downloadable reports."
+"Built a Streamlit medical-imaging research demo combining image-restoration comparisons
+with an experimental pediatric chest X-ray pneumonia classifier; trained and evaluated the
+classifier on a published held-out benchmark split and report sensitivity, specificity, AUC,
+and confusion counts with explicit limits."
 
-Use this description after you understand the revised implementation. Do not claim model
-training, EfficientNet/U-Net++, disease-classification accuracy, or clinical validation.
+Do not claim diagnosis, CheXpert training, or clinical validation.
 See THIRD_PARTY_NOTICES.md for upstream attribution.
 

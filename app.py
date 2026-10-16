@@ -1,9 +1,12 @@
 import hashlib
+from io import BytesIO
 import json
 import os
 
 import streamlit as st
+from PIL import Image
 
+from visionx.findings import load_findings_model, predict_pneumonia
 from visionx.gemini import review_quality
 from visionx.images import demo_image, load_image, png_bytes
 from visionx.models import load_runner
@@ -14,6 +17,30 @@ st.set_page_config(page_title="VisionX Pro", page_icon=":material/visibility:", 
 st.title("VisionX Pro")
 st.write("Restore images. Compare methods. Measure what changed.")
 st.caption("An image-restoration research prototype. Results and optional AI commentary are not diagnostic evidence.")
+
+if os.path.exists("results/pneumonia_test_metrics.json"):
+    with st.expander("Chest X-ray classifier · held-out benchmark results"):
+        with open("results/pneumonia_test_metrics.json", encoding="utf-8") as metrics_file:
+            benchmark = json.load(metrics_file)
+        st.caption(f"{benchmark['dataset']} · {benchmark['split']} · n={benchmark['n']} · fixed threshold {benchmark['threshold']:.2f}")
+        metric_columns = st.columns(4)
+        for column, name, label in zip(
+            metric_columns,
+            ["roc_auc", "sensitivity", "specificity", "accuracy"],
+            ["ROC AUC", "Sensitivity", "Specificity", "Accuracy"],
+        ):
+            column.metric(label, f"{benchmark[name]:.3f}")
+        cm = benchmark["confusion_matrix"]
+        st.write("Test-set counts at threshold 0.50")
+        st.dataframe([
+            {"Actual label": "Normal", "Predicted normal": cm["true_normal"],
+             "Predicted pneumonia": cm["false_pneumonia"]},
+            {"Actual label": "Pneumonia", "Predicted normal": cm["missed_pneumonia"],
+             "Predicted pneumonia": cm["true_pneumonia"]},
+        ], hide_index=True, use_container_width=True)
+        st.caption(f"Precision {benchmark['precision']:.3f} · F1 {benchmark['f1']:.3f} · "
+                   f"Brier score {benchmark['brier_score']:.3f}")
+        st.caption(benchmark["warning"])
 
 with st.sidebar:
     st.header("Set up a run")
@@ -55,6 +82,40 @@ else:
             st.error(str(exc))
 if preview is not None:
     st.image(png_bytes(preview), caption="Working image", width=320)
+
+# The finding model is kept separate from restoration so a sharpened image is
+# never silently treated as an independent diagnostic input.
+model_path = "models/pneumonia_mnist.pt"
+if source == "Upload image" and upload and os.path.exists(model_path):
+    st.divider()
+    st.subheader("Experimental chest X-ray finding prediction")
+    st.warning(
+        "Research demo only. This model was trained on pediatric PneumoniaMNIST "
+        "images to distinguish normal from pneumonia labels. It is not a radiology "
+        "report, cannot identify other findings, and must not be used for care."
+    )
+    if st.button("Predict on original uploaded image", key="predict_pneumonia"):
+        try:
+            with st.spinner("Running the experimental classifier"):
+                model, checkpoint = load_findings_model(model_path)
+                probability = predict_pneumonia(model, Image.open(BytesIO(raw)))
+                st.session_state["finding_prediction"] = {
+                    "sha": hashlib.sha256(raw).hexdigest(), "probability": probability,
+                    "dataset": checkpoint["dataset"],
+                }
+        except Exception as exc:
+            st.error("Prediction could not finish: " + str(exc))
+    prediction = st.session_state.get("finding_prediction", {})
+    if prediction.get("sha") == hashlib.sha256(raw).hexdigest():
+        probability = prediction["probability"]
+        st.metric("Model output", "Pneumonia pattern" if probability >= .5 else "Normal pattern",
+                  f"{probability:.1%} pneumonia score")
+        st.caption(
+            f"Single-model output on the original upload · {prediction['dataset']} · "
+            "0.5 threshold. This score is not a clinical probability."
+        )
+elif source == "Upload image" and upload:
+    st.info("The experimental findings model is not trained yet. Run scripts/train_pneumonia.py first.")
 
 if st.button("Run restoration", type="primary", disabled=preview is None or not methods):
     try:
